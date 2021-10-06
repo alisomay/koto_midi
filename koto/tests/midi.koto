@@ -1,0 +1,205 @@
+from test import assert, assert_eq, assert_ne
+
+export @tests =
+
+  @test parse_malformed_messages: ||
+    parse_some_malformed_messages = |args...|
+      args.each(|byte_list|
+        try
+          message = midi.parse byte_list
+          assert_eq message.type, "malformed"
+          assert_eq message.type, midi.types.malformed
+          assert_eq message.category, "unknown"
+          assert_eq message.category, midi.categories.unknown
+        catch error
+          assert_eq (koto.type error) == "String", true
+      ).consume()
+    parse_some_malformed_messages
+      [0x00,0x7F,0x7F,0x7F],
+      [256,0xFF,0xFF],
+      [256,0x00,0xFF],
+      [256,0xFF,0x00],
+      [256,0x00,0x00],
+      [256,0x00],
+      [256,0xFF],
+      [256],
+      [0x80,-1,0],
+      [0x90,0,-1],
+      [-1,0,0],
+      ["0xF0",0x00, 0x01, 0xF7],
+      [0x00, 0x01, true],
+      [0x00, 0x01, {byte: 0xF0}],
+      (0x00)
+  
+  @test parse_undefined_messages: ||
+    parse_undefined_messages = |args...|
+      args.each(|byte_list|
+        message = midi.parse byte_list
+        assert_eq message.type, "undefined"
+        assert_eq message.type, midi.types.undefined
+        assert_eq message.category, "unknown"
+        assert_eq message.category, midi.categories.unknown
+      ).consume()
+    parse_undefined_messages
+      [0xF4,0,0],
+      [0xF5,0,0],
+      [0xFD,0,0],
+      [0xF9,0,0]
+
+  @test parse_channel_voice_messages: ||
+    parse_channel_voice_message = |list_to_parse, name_literal, expected_parts|
+      message = midi.parse list_to_parse
+      assert_eq message.type, name_literal
+      assert_eq message.type, midi.types."${name_literal}"
+      assert_eq message.category, "channel_voice"
+      assert_eq message.category, midi.categories.channel_voice
+      expected_parts.keys().each(|key| assert_eq message."${key}", expected_parts."${key}").consume()
+      assert_eq message.pack(), list_to_parse
+    
+    parse_channel_voice_message [0x80,0x00,0x00], "note_off", {channel: 0, note: 0, velocity: 0}
+    parse_channel_voice_message [0x90,0x00,0x00], "note_on", {channel: 0, note: 0, velocity: 0}
+    parse_channel_voice_message [0xA0,0x00,0x00], "poly_after_touch", {channel: 0, note: 0, pressure: 0}
+    parse_channel_voice_message [0xB0,0x00,0x00], "control_change", {channel: 0, note: 0, value: 0}
+    parse_channel_voice_message [0xC0,0x00], "program_change", {channel: 0, program: 0}
+    parse_channel_voice_message [0xD0,0x00], "after_touch", {channel: 0, pressure: 0}
+    parse_channel_voice_message [0xE0,0x00,0x00], "pitch_bend", {channel: 0, bend_amount: 0}
+
+    parse_channel_voice_message [0x8F,0x7F,0x7F], "note_off", {channel: 15, note: 127, velocity: 127}
+    parse_channel_voice_message [0x9F,0x7F,0x7F], "note_on", {channel: 15, note: 127, velocity: 127}
+    parse_channel_voice_message [0xAF,0x7F,0x7F], "poly_after_touch", {channel: 15, note: 127, pressure: 127}
+    parse_channel_voice_message [0xBF,0x77,0x7F], "control_change", {channel: 15, note: 119, value: 127}
+    
+    channel_mode_message = midi.parse [0xB0,0x7F,0x7F]
+    assert_ne channel_mode_message.type, "channel_voice"
+    assert_ne channel_mode_message.type, midi.categories.channel_voice
+    assert_ne channel_mode_message.type, "control_change"
+    assert_ne channel_mode_message.type, midi.types.control_change
+    
+    parse_channel_voice_message [0xCF,0x7F], "program_change", {channel: 15, program: 127}
+    parse_channel_voice_message [0xDF,0x7F], "after_touch", {channel: 15, pressure: 127}
+
+    parse_channel_voice_message [0xEF,0x7F,0x7F], "pitch_bend", {channel: 15, bend_amount: 16383}
+    parse_channel_voice_message [0xEF,0x3F,0x3F], "pitch_bend", {channel: 15, bend_amount: 8127}
+
+  @test parse_channel_mode_messages: ||
+    parse_channel_mode_message = |list_to_parse, name_literal, expected_parts|
+      message = midi.parse list_to_parse
+      assert_eq message.type, name_literal
+      assert_eq message.type, midi.types."${name_literal}"
+      assert_eq message.category, "channel_mode"
+      assert_eq message.category, midi.categories.channel_mode
+      expected_parts.keys().each(|key| assert_eq message."${key}", expected_parts."${key}").consume()
+      assert_eq message.pack(), list_to_parse
+
+    parse_channel_mode_message [0xB0,0x78,0x00], "all_sound_off", {channel: 0, value: 0}
+    parse_channel_mode_message [0xB0,0x79,0x00], "reset_all_controllers", {channel: 0, value: 0}
+    parse_channel_mode_message [0xB0,0x7A,0x00], "local_control", {channel: 0, value: 0}
+    parse_channel_mode_message [0xB0,0x7B,0x00], "all_notes_off", {channel: 0, value: 0}
+    parse_channel_mode_message [0xB0,0x7C,0x00], "omni_mode_off", {channel: 0, value: 0}
+    parse_channel_mode_message [0xB0,0x7D,0x00], "omni_mode_on", {channel: 0, value: 0}
+    parse_channel_mode_message [0xB0,0x7E,0x00], "mono_mode_on", {channel: 0, value: 0}
+    parse_channel_mode_message [0xB0,0x7F,0x00], "poly_mode_on", {channel: 0, value: 0}
+    
+    parse_channel_mode_message [0xBF,0x78,0x7F], "all_sound_off", {channel: 15, value: 127}
+    parse_channel_mode_message [0xBF,0x79,0x7F], "reset_all_controllers", {channel: 15, value: 127}
+    parse_channel_mode_message [0xBF,0x7A,0x7F], "local_control", {channel: 15, value: 127}
+    parse_channel_mode_message [0xBF,0x7B,0x7F], "all_notes_off", {channel: 15, value: 127}
+    parse_channel_mode_message [0xBF,0x7C,0x7F], "omni_mode_off", {channel: 15, value: 127}
+    parse_channel_mode_message [0xBF,0x7D,0x7F], "omni_mode_on", {channel: 15, value: 127}
+    parse_channel_mode_message [0xBF,0x7E,0x7F], "mono_mode_on", {channel: 15, value: 127}
+    parse_channel_mode_message [0xBF,0x7F,0x7F], "poly_mode_on", {channel: 15, value: 127}
+
+    channel_voice_message = midi.parse [0xB0,0x77,0x7F]
+    assert_ne channel_voice_message.type, "channel_mode"
+    assert_ne channel_voice_message.type, midi.categories.channel_mode
+    assert_eq channel_voice_message.type, "control_change"
+    assert_eq channel_voice_message.type, midi.types.control_change
+
+  @test parse_system_common_messages: ||
+    parse_system_common_message = |list_to_parse, name_literal, args...|
+      
+      execute_expected_parts = false
+      if args.size() > 0
+        expected_parts = args[0]
+        execute_expected_parts = (koto.type expected_parts) == "Map" 
+      
+      message = midi.parse list_to_parse
+      assert_eq message.type, name_literal
+      assert_eq message.type, midi.types."${name_literal}"
+      assert_eq message.category, "system_common"
+      assert_eq message.category, midi.categories.system_common
+      if execute_expected_parts
+        expected_parts.keys().each(|key| assert_eq message."${key}", expected_parts."${key}").consume()
+      assert_eq message.pack(), list_to_parse
+
+    parse_system_common_message [0xF1,0x00.shift_left(4).or(0x00)], "time_code_quarter_frame", {message_type: 0, values: 0}
+    parse_system_common_message [0xF1,0x03.shift_left(4).or(0x0F)], "time_code_quarter_frame", {message_type: 3, values: 15}
+    parse_system_common_message [0xF1,0x06.shift_left(4).or(0x00)], "time_code_quarter_frame", {message_type: 6, values: 0}
+    parse_system_common_message [0xF2,0x00,0x00], "song_position", {midi_beats_elapsed: 0, midi_clocks_elapsed: 0}
+    parse_system_common_message [0xF2,0x7F,0x7F], "song_position", {midi_beats_elapsed: 16383, midi_clocks_elapsed: 16383 * 6}
+    parse_system_common_message [0xF3,0x00], "song_select", {number: 0}
+    parse_system_common_message [0xF6], "tune_request"
+    parse_system_common_message [0xF7], "end_of_exclusive"
+
+    # sysex
+    
+    sysex_bytes_1 = [0xF0,0x01,0x02,0x03,0x04,0x05,0x06,0x07,0x08,0x09,0x0A,0x0B,0x0C,0x0D,0x0E,0x0F,0xF7]
+    sysex_bytes_2 = [0xF0,0x00,0x02,0x03,0x04,0x05,0x06,0x07,0x08,0x09,0x0A,0x0B,0x0C,0x0D,0x0E,0x0F,0xF7]
+
+    sysex_malformed = midi.parse [0x00,0x02,0x03,0x04,0x05,0x06,0x07,0x08,0x09,0x0A,0x0B,0x0C,0x0D,0x0E,0x0F,0xF7]
+    assert_eq sysex_malformed.type, "malformed"
+    assert_eq sysex_malformed.type, midi.types.malformed
+    
+    sysex_malformed = midi.parse [0xF0,0x00,0x02,0x03,0x04,0x05,0x06,0x07,0x08,0x09,0x0A,0x0B,0x0C,0x0D,0x0E,0x0F]
+    assert_eq sysex_malformed.type, "malformed"
+    assert_eq sysex_malformed.type, midi.types.malformed
+
+    sysex_malformed = midi.parse [0x00,0xF7]
+    assert_eq sysex_malformed.type, "malformed"
+    assert_eq sysex_malformed.type, midi.types.malformed
+
+    sysex_fine = midi.parse [0xF0,0x01,0xF7]
+    assert_ne sysex_fine.type, "malformed"
+    assert_ne sysex_fine.type, midi.types.malformed
+   
+    sysex_1 = midi.parse sysex_bytes_1
+
+    assert_eq sysex_1.type, "system_exclusive"
+    assert_eq sysex_1.type, midi.types.system_exclusive
+    assert_eq sysex_1.category, "system_common"
+    assert_eq sysex_1.category, midi.categories.system_common
+    # Test manufacturer id
+    sysex_bytes_1[1..3].zip(sysex_1.manufacturer_id).each(|(byte, packed_byte)| assert_eq byte, packed_byte).to_tuple()
+    assert_eq sysex_1.pack(), sysex_bytes_1
+        
+    sysex_2 = midi.parse sysex_bytes_2
+
+    assert_eq sysex_2.type, "system_exclusive"
+    assert_eq sysex_2.type, midi.types.system_exclusive
+    assert_eq sysex_2.category, "system_common"
+    assert_eq sysex_2.category, midi.categories.system_common
+    # Test manufacturer id
+    sysex_bytes_2[1..5].zip(sysex_2.manufacturer_id).each(|(byte, packed_byte)| assert_eq byte, packed_byte).to_tuple()
+    assert_eq sysex_2.pack(), sysex_bytes_2
+  
+  @test parse_system_realtime_messages: ||
+    parse_system_realtime_message = |list_to_parse, name_literal|
+      message = midi.parse list_to_parse
+      assert_eq message.type, name_literal
+      assert_eq message.type, midi.types."${name_literal}"
+      assert_eq message.category, "system_realtime"
+      assert_eq message.category, midi.categories.system_realtime
+      assert_eq message.pack(), list_to_parse
+
+    parse_system_realtime_message [0xF8], "timing_clock"
+    parse_system_realtime_message [0xFA], "start"
+    parse_system_realtime_message [0xFB], "continue"
+    parse_system_realtime_message [0xFC], "stop"
+    parse_system_realtime_message [0xFE], "active_sensing"
+    parse_system_realtime_message [0xFF], "reset"
+  
+  # TODO: Test message constructors
+
+
+
+

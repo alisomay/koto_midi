@@ -1,0 +1,13 @@
+[package]
+name = "koto_midi"
+version = "0.0.1"
+authors = ["alisomay <alisomay@runbox.com>"]
+edition = "2018"
+license = "MIT"
+description = "A Koto library for working with midi data"
+homepage = "https://github.com/alisomay/koto_midi"
+repository = "https://github.com/alisomay/koto_midi"
+keywords = ["scripting", "module", "koto"]
+
+[dependencies]
+koto = { git = "https://github.com/koto-lang/koto", branch= "main" } # latest unreleased koto

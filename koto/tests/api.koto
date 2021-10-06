@@ -1,0 +1,107 @@
+from test import assert
+import midi
+
+export @tests =
+  @test list_types: 
+    io.print "\n## koto_midi api summarry ##"
+    io.print "\ntypes of messages"
+    io.print "|"
+    midi.types.keys().each(|key|
+      io.print "| midi.types.${key} = \"$key\""
+    ).consume()
+
+    io.print "|_"
+    assert true
+
+  @test list_categories: 
+    io.print "\ncategories of messages"
+    io.print "|"
+    midi.categories.keys().each(|key|
+      io.print "| midi.categories.${key} = \"$key\""
+    ).consume()
+
+    io.print "|_"
+    assert true
+
+  @test list_module_level_methods: 
+    io.print "\nmodule level methods"
+    io.print "|"
+    midi.keys().each(|key|
+    #   io.print key
+      if (koto.type midi."$key") == "ExternalFunction"
+        if key == "parse"
+          io.print "| # This function expects a single list of positive integers as its argument."
+          io.print "| # It will return a message map. One of the types in \"midi.message\" or throw a runtime error."
+          io.print "| midi.${key} = ${midi."$key"}"
+    ).consume()
+
+    io.print "|_"
+    assert true
+
+  @test list_message_maps: 
+    messages = [[0x80,0x00,0x00],
+                [0x90,0x00,0x00],
+                [0xA0,0x00,0x00],
+                [0xB0,0x00,0x00],
+                [0xC0,0x00],
+                [0xD0,0x00],
+                [0xE0,0x00,0x00],
+                [0xB0,0x78,0x00],
+                [0xB0,0x79,0x00],
+                [0xB0,0x7A,0x00],
+                [0xB0,0x7B,0x00],
+                [0xB0,0x7C,0x00],
+                [0xB0,0x7D,0x00],
+                [0xB0,0x7E,0x00],
+                [0xB0,0x7F,0x00],
+                [0xF1,0x00.shift_left(4).or(0x00)],
+                [0xF2,0x00,0x00],
+                [0xF3,0x00],
+                [0xF6],
+                [0xF7],
+                [0xF0,0x01,0x02,0x03,0x04,0x05,0x06,0x07,0x08,0x09,0x0A,0x0B,0x0C,0x0D,0x0E,0x0F,0xF7],
+                [0xF8],
+                [0xFA],
+                [0xFB],
+                [0xFC],
+                [0xFE],
+                [0xFF],
+                [256,0xFF,0xFF],
+                [0xF4,0,0]]
+
+    io.print "\nmessage map constructors"
+    io.print "|"
+    messages.each(|message|
+      msg_map = midi.parse message
+      construction_keys = msg_map.keys().to_tuple().keep(|key| (key != "category" and key != "type") and key != "pack").to_tuple()
+      info_string = "["
+      cnt = 0
+      for key in construction_keys
+        cnt += 1
+        if msg_map.category == "channel_mode"
+          if key == "note"
+            continue
+        if msg_map.type == "song_position"
+          if key == "midi_clocks_elapsed"
+            continue
+        if cnt == construction_keys.size() or msg_map.type == "song_position"
+          info_string += "<$key>"
+        else
+          info_string += "<$key>, "
+      info_string += "]"
+      if msg_map.type == "system_exclusive"
+        info_string = "[<manufacturer_id>, <message>]"
+      if construction_keys.size() > 0
+        io.print "| midi.message.${msg_map.type} $info_string"
+      else
+        io.print "| midi.message.${msg_map.type} # no arguments needed"
+
+      io.print "|  # returns a map with following keys"
+      msg_map.keys().each(|key|
+        io.print "|      $key"
+      ).consume()
+      io.print "|  # or"
+      io.print "|      ()"
+    ).consume()
+    io.print "|_\n"
+    assert true

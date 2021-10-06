@@ -1,0 +1,15 @@
+[package]
+name = "test_runner"
+version = "0.0.1"
+authors = ["alisomay <alisomay@runbox.com>"]
+edition = "2018"
+license = "MIT"
+publish = false
+description = "A test runner for koto midi module"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dev-dependencies]
+koto = { git = "https://github.com/koto-lang/koto", branch= "main" } # latest unreleased koto
+koto_midi = { path = "../midi", version = "^0.0.1"}
+
