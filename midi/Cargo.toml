@@ -2,7 +2,7 @@
 name = "koto_midi"
 version = "0.0.1"
 authors = ["alisomay <alisomay@runbox.com>"]
-edition = "2018"
+edition = "2021"
 license = "MIT"
 description = "A Koto library for working with midi data"
 homepage = "https://github.com/alisomay/koto_midi"
