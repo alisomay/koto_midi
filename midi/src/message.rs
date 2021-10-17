@@ -64,7 +64,7 @@ impl From<&[u8]> for ParsedMessage {
         let message = match status_byte & 0xF0 {
             0x80 => match data_bytes_length {
                 2 if data_bytes[0] <= 127 && data_bytes[1] <= 127 => {
-                    Message::NoteOff(NoteOff::from(raw_message))
+                    Message::NoteOff(raw_message.into())
                 }
                 _ => Message::Malformed,
             },
@@ -77,22 +77,22 @@ impl From<&[u8]> for ParsedMessage {
             },
             0xA0 => match data_bytes_length {
                 2 if data_bytes[0] <= 127 && data_bytes[1] <= 127 => {
-                    Message::PolyAfterTouch(PolyAfterTouch::from(raw_message))
+                    Message::PolyAfterTouch(raw_message.into())
                 }
                 _ => Message::Malformed,
             },
             0xB0 => match data_bytes_length {
                 2 if data_bytes[0] <= 127 && data_bytes[1] <= 127 => {
                     match data_bytes[0] & 0b0111_1111 {
-                        0..120 => Message::ControlChange(ControlChange::from(raw_message)),
-                        120 => Message::AllSoundOff(AllSoundOff::from(raw_message)),
-                        121 => Message::ResetAllControllers(ResetAllControllers::from(raw_message)),
-                        122 => Message::LocalControl(LocalControl::from(raw_message)),
-                        123 => Message::AllNotesOff(AllNotesOff::from(raw_message)),
-                        124 => Message::OmniModeOff(OmniModeOff::from(raw_message)),
-                        125 => Message::OmniModeOn(OmniModeOn::from(raw_message)),
-                        126 => Message::MonoModeOn(MonoModeOn::from(raw_message)),
-                        127 => Message::PolyModeOn(PolyModeOn::from(raw_message)),
+                        0..120 => Message::ControlChange(raw_message.into()),
+                        120 => Message::AllSoundOff(raw_message.into()),
+                        121 => Message::ResetAllControllers(raw_message.into()),
+                        122 => Message::LocalControl(raw_message.into()),
+                        123 => Message::AllNotesOff(raw_message.into()),
+                        124 => Message::OmniModeOff(raw_message.into()),
+                        125 => Message::OmniModeOn(raw_message.into()),
+                        126 => Message::MonoModeOn(raw_message.into()),
+                        127 => Message::PolyModeOn(raw_message.into()),
                         _ => Message::Malformed,
                     }
                 }
@@ -100,40 +100,36 @@ impl From<&[u8]> for ParsedMessage {
             },
 
             0xC0 => match data_bytes_length {
-                1 if data_bytes[0] <= 127 => {
-                    Message::ProgramChange(ProgramChange::from(raw_message))
-                }
+                1 if data_bytes[0] <= 127 => Message::ProgramChange(raw_message.into()),
                 _ => Message::Malformed,
             },
             0xD0 => match data_bytes_length {
-                1 if data_bytes[0] <= 127 => Message::AfterTouch(AfterTouch::from(raw_message)),
+                1 if data_bytes[0] <= 127 => Message::AfterTouch(raw_message.into()),
                 _ => Message::Malformed,
             },
             0xE0 => match data_bytes_length {
                 2 if data_bytes[0] <= 127 && data_bytes[1] <= 127 => {
-                    Message::PitchBend(PitchBend::from(raw_message))
+                    Message::PitchBend(raw_message.into())
                 }
                 _ => Message::Malformed,
             },
             _ => match status_byte {
                 0xF0 => match data_bytes.last() {
-                    Some(0xF7) => Message::SystemExclusive(SystemExclusive::from(raw_message)),
+                    Some(0xF7) => Message::SystemExclusive(raw_message.into()),
                     _ => Message::Malformed,
                 },
                 0xF1 => match data_bytes_length {
-                    1 if data_bytes[0] <= 127 => {
-                        Message::TimeCodeQuarterFrame(TimeCodeQuarterFrame::from(raw_message))
-                    }
+                    1 if data_bytes[0] <= 127 => Message::TimeCodeQuarterFrame(raw_message.into()),
                     _ => Message::Malformed,
                 },
                 0xF2 => match data_bytes_length {
                     2 if data_bytes[0] <= 127 && data_bytes[1] <= 127 => {
-                        Message::SongPosition(SongPosition::from(raw_message))
+                        Message::SongPosition(raw_message.into())
                     }
                     _ => Message::Malformed,
                 },
                 0xF3 => match data_bytes_length {
-                    1 if data_bytes[0] <= 127 => Message::SongSelect(SongSelect::from(raw_message)),
+                    1 if data_bytes[0] <= 127 => Message::SongSelect(raw_message.into()),
                     _ => Message::Malformed,
                 },
                 0xF4 | 0xF5 => Message::Undefined,
