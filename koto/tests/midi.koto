@@ -46,6 +46,7 @@ export @tests =
       [0xFD,0,0],
       [0xF9,0,0]
 
+
   @test parse_channel_voice_messages: ||
     parse_channel_voice_message = |list_to_parse, name_literal, expected_parts|
       message = midi.parse list_to_parse
@@ -135,8 +136,8 @@ export @tests =
     parse_system_common_message [0xF1,0x00.shift_left(4).or(0x00)], "time_code_quarter_frame", {message_type: 0, values: 0}
     parse_system_common_message [0xF1,0x03.shift_left(4).or(0x0F)], "time_code_quarter_frame", {message_type: 3, values: 15}
     parse_system_common_message [0xF1,0x06.shift_left(4).or(0x00)], "time_code_quarter_frame", {message_type: 6, values: 0}
-    parse_system_common_message [0xF2,0x00,0x00], "song_position", {midi_beats_elapsed: 0, midi_clocks_elapsed: 0}
-    parse_system_common_message [0xF2,0x7F,0x7F], "song_position", {midi_beats_elapsed: 16383, midi_clocks_elapsed: 16383 * 6}
+    parse_system_common_message [0xF2,0x00,0x00], "song_position", {midi_beats_elapsed: 0}
+    parse_system_common_message [0xF2,0x7F,0x7F], "song_position", {midi_beats_elapsed: 16383}
     parse_system_common_message [0xF3,0x00], "song_select", {number: 0}
     parse_system_common_message [0xF6], "tune_request"
     parse_system_common_message [0xF7], "end_of_exclusive"
@@ -199,7 +200,18 @@ export @tests =
     parse_system_realtime_message [0xFF], "reset"
   
   # TODO: Test message constructors
-
+  @test mac_1: ||
+    x = midi.message.note_on [1,0,1]
+    assert_eq x.type, "note_on"
+    assert_eq x.type, midi.types.note_on
+    assert_eq x.category, "channel_voice"
+    assert_eq x.pack(), [0x91,0x01,0x00]
+  @test mac: ||
+    x = midi.message.note_off [1,0,0]
+    assert_eq x.type, "note_off"
+    assert_eq x.type, midi.types.note_off
+    assert_eq x.category, "channel_voice"
+    assert_eq x.pack(), [0x80,0x01,0x00]
 
 
 

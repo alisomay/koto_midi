@@ -71,7 +71,7 @@ impl From<&[u8]> for ParsedMessage {
 
             0x90 => match data_bytes_length {
                 2 if data_bytes[0] <= 127 && data_bytes[1] <= 127 => {
-                    Message::NoteOn(NoteOn::from(raw_message))
+                    Message::NoteOn(raw_message.into())
                 }
                 _ => Message::Malformed,
             },

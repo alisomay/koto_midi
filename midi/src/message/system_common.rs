@@ -133,10 +133,6 @@ impl SongPosition {
     pub fn midi_beats_elapsed(&self) -> u16 {
         self.midi_beats_elapsed
     }
-    pub fn midi_clocks_elapsed(&self) -> u64 {
-        (self.midi_beats_elapsed as u64) * 6
-    }
-
     pub fn change_midi_beats_elapsed(&mut self, midi_beats_elapsed: u16) {
         self.midi_beats_elapsed = midi_beats_elapsed.min(16383);
         let msb = ((midi_beats_elapsed >> 7) as u8) & 0b0111_1111;

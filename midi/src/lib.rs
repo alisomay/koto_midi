@@ -4,12 +4,12 @@ mod message;
 use message::*;
 
 use koto::runtime::{
-    runtime_error, RuntimeError, Value, ValueList, ValueMap, ValueNumber, ValueString,
+    runtime_error, RuntimeError, Value, ValueList, ValueMap, ValueNumber,
 };
 
-macro_rules! add_types {
+macro_rules! types {
     ($map:ident,$($type_literal:literal),*) => {
-        $($map.add_value($type_literal,Value::Str(ValueString::from($type_literal)));)*
+        $($map.add_value($type_literal, $type_literal.into());)*
     }
 }
 macro_rules! impl_pack {
@@ -19,25 +19,15 @@ macro_rules! impl_pack {
                 &$message
                     .pack()
                     .into_iter()
-                    .map(|byte| Value::Number(ValueNumber::from(byte)))
+                    .map(|byte| byte.into())
                     .collect::<Vec<Value>>()[..],
             )))
         });
     };
 }
-macro_rules! koto_string {
-    ($l:literal) => {
-        Value::Str(ValueString::from($l))
-    };
-}
-macro_rules! koto_number {
-    ($e:expr) => {
-        Value::Number(ValueNumber::from($e))
-    };
-}
 
 // TODO: Solve unnecessary repetition of list collectors for different types ot cases if there is.
-pub fn collect_list_of_u8(
+pub fn collect_list_of_midi_bytes_as_u8(
     message: &ValueList,
     error: &str,
 ) -> std::result::Result<Vec<u8>, RuntimeError> {
@@ -47,7 +37,7 @@ pub fn collect_list_of_u8(
         .map(|v| match v {
             Value::Number(num) => match num {
                 // Truncate.
-                ValueNumber::I64(midi_byte) if *midi_byte >= 0 => Ok(*midi_byte as u8),
+                ValueNumber::I64(midi_byte) if *midi_byte >= 0 && *midi_byte < 128 => Ok(*midi_byte as u8),
                 _ => runtime_error!(error),
             },
             _ => {
@@ -58,7 +48,7 @@ pub fn collect_list_of_u8(
     arguments
 }
 
-pub fn collect_list_of_u8_for_sysex(
+pub fn collect_list_of_u8(
     message: &ValueList,
     error: &str,
 ) -> std::result::Result<Vec<u8>, RuntimeError> {
@@ -116,53 +106,86 @@ pub fn collect_list_of_value_list(
     arguments
 }
 
-macro_rules! add_message_constructor_with_fields {
-        ($map:ident, $name_literal:literal, $($field:ident),*, $constructor_content:block, $error_literal:literal) => {
-            $map.add_fn($name_literal, |vm, args| {
-                if vm.get_args(&args).len() == 1 {
-                    match vm.get_args(&args) {
-                        [Value::List(message)] => {
-                            if let Ok(arguments) = collect_list_of_u64(message, $error_literal) {
-                                if let [$($field),*] = &arguments[..]
-                                    $constructor_content
-                                else {
-                                runtime_error!($error_literal)
-                                }
-                            } else {
-                                Ok(Value::Empty)
-                            }
-                        }
-                        _ => runtime_error!($error_literal),
-                    }
-                } else {
-                    runtime_error!($error_literal)
-                }
-            })
-        }
-    }
 
-macro_rules! add_plain_message_constructor {
-    ($map:ident, $name_literal:literal, $category_literal:literal, $enum_key:ty, $error_literal:literal) => {
-        $map.add_fn($name_literal, |vm, args| {
+fn pascal_case_to_underscore_separated_literal(string_to_process: &str) -> std::string::String {
+    let mut literal = String::new();
+    for (i,ch) in string_to_process.chars().enumerate() {
+        if ch.is_uppercase() && i != 0 {
+            literal.push('_');
+            literal.push_str(&format!("{}",ch.to_lowercase())[..]);
+            continue;
+        }
+        else if ch.is_uppercase() {
+            literal.push_str(&format!("{}",ch.to_lowercase())[..]);
+            continue;
+        }
+        literal.push(ch);
+    }
+    literal
+}
+
+
+macro_rules! message_constructor {
+    ($map:ident, $enum_key:ident, $category_literal:literal, $($field:ident),*, $error_literal:literal) => {
+        let name_literal = pascal_case_to_underscore_separated_literal(stringify!($enum_key));
+        $map.add_fn(&name_literal.clone(), move |vm, args| {
+            if vm.get_args(&args).len() == 1 {
+                match vm.get_args(&args) {
+                    [Value::List(message)] => {
+                        if let Ok(arguments) = collect_list_of_u64(message, $error_literal) {
+                            if let [$($field),*] = &arguments[..] {
+                                let mut message_koto = ValueMap::new();
+                                // dbg!($(*$field),*);
+                                let message = <$enum_key>::new($(*$field),*);
+                                dbg!(&message);
+                                message_koto.add_value("type", name_literal.clone().into());
+                                message_koto.add_value("category", $category_literal.into());
+                                $(
+                                //   dbg!($field);
+                                  message_koto.add_value(stringify!($field), message.$field().into());
+                                )*
+                                impl_pack!(message_koto, message);
+                                Ok(Value::Map(message_koto))
+                            }
+                            else {
+                            runtime_error!($error_literal)
+                            }
+                        } else {
+                            Ok(Value::Empty)
+                        }
+                    }
+                    _ => runtime_error!($error_literal),
+                }
+            } else {
+                runtime_error!($error_literal)
+            }
+        })
+    };
+
+    ($map:ident, $enum_key:ty, $category_literal:literal, $error_literal:literal) => {
+        let name_literal = pascal_case_to_underscore_separated_literal(stringify!($enum_key));
+        $map.add_fn(&name_literal.clone(), move |vm, args| {
             if vm.get_args(&args).len() == 0 {
                 let mut message_koto = ValueMap::new();
                 let message = <$enum_key>::default();
-                message_koto.add_value("type", koto_string!($name_literal));
-                message_koto.add_value("category", koto_string!($category_literal));
+                message_koto.add_value("type", name_literal.clone().into());
+                message_koto.add_value("category", $category_literal.into());
                 impl_pack!(message_koto, message);
                 Ok(Value::Map(message_koto))
             } else {
                 runtime_error!($error_literal)
             }
         })
-    };
+    }
 }
+
+
 
 pub fn make_module() -> ValueMap {
     let mut module = ValueMap::new();
 
     let mut types = ValueMap::new();
-    add_types!(
+    types!(
         types,
         "note_off",
         "note_on",
@@ -196,7 +219,7 @@ pub fn make_module() -> ValueMap {
     );
 
     let mut categories = ValueMap::new();
-    add_types!(
+    types!(
         categories,
         "channel_voice",
         "channel_mode",
@@ -207,269 +230,129 @@ pub fn make_module() -> ValueMap {
 
     let mut message_constructors = ValueMap::new();
 
-    add_message_constructor_with_fields!(
+    message_constructor!(
         message_constructors,
-        "note_off",
+        NoteOff,
+        "channel_voice",
         note,
         velocity,
         channel,
-        {
-            let mut message_koto = ValueMap::new();
-            let message = NoteOff::new(*note, *velocity, *channel);
-            message_koto.add_value("type", koto_string!("note_off"));
-            message_koto.add_value("category", koto_string!("channel_voice"));
-            message_koto.add_value("note", koto_number!(message.note()));
-            message_koto.add_value("velocity", koto_number!(message.velocity()));
-            message_koto.add_value("channel", koto_number!(message.channel()));
-            impl_pack!(message_koto, message);
-            Ok(Value::Map(message_koto))
-        },
         "note_off requires a single list of exactly three integers as its argument"
     );
-    add_message_constructor_with_fields!(
+    message_constructor!(
         message_constructors,
-        "note_on",
+        NoteOn,
+        "channel_voice",
         note,
         velocity,
         channel,
-        {
-            let mut message_koto = ValueMap::new();
-            let message = NoteOn::new(*note, *velocity, *channel);
-            message_koto.add_value("type", koto_string!("note_on"));
-            message_koto.add_value("category", koto_string!("channel_voice"));
-            message_koto.add_value("note", koto_number!(message.note()));
-            message_koto.add_value("velocity", koto_number!(message.velocity()));
-            message_koto.add_value("channel", koto_number!(message.channel()));
-            impl_pack!(message_koto, message);
-            Ok(Value::Map(message_koto))
-        },
         "note_on requires a single list of exactly three integers as its argument"
     );
-    add_message_constructor_with_fields!(
+    message_constructor!(
         message_constructors,
-        "poly_after_touch",
+        PolyAfterTouch,
+        "channel_voice",
         note,
         pressure,
         channel,
-        {
-            let mut message_koto = ValueMap::new();
-            let message = PolyAfterTouch::new(*note, *pressure, *channel);
-            message_koto.add_value("type", koto_string!("poly_after_touch"));
-            message_koto.add_value("category", koto_string!("channel_voice"));
-            message_koto.add_value("note", koto_number!(message.note()));
-            message_koto.add_value("pressure", koto_number!(message.pressure()));
-            message_koto.add_value("channel", koto_number!(message.channel()));
-            impl_pack!(message_koto, message);
-            Ok(Value::Map(message_koto))
-        },
         "poly_after_touch requires a single list of exactly three integers as its argument"
     );
-    add_message_constructor_with_fields!(
+    message_constructor!(
         message_constructors,
-        "control_change",
+        ControlChange,
+        "channel_voice",
         note,
         value,
         channel,
-        {
-            let mut message_koto = ValueMap::new();
-            let message = ControlChange::new(*note, *value, *channel);
-            message_koto.add_value("type", koto_string!("control_change"));
-            message_koto.add_value("category", koto_string!("channel_voice"));
-            message_koto.add_value("note", koto_number!(message.note()));
-            message_koto.add_value("value", koto_number!(message.value()));
-            message_koto.add_value("channel", koto_number!(message.channel()));
-            impl_pack!(message_koto, message);
-            Ok(Value::Map(message_koto))
-        },
         "control_change requires a single list of exactly three integers as its argument"
     );
-    add_message_constructor_with_fields!(
+    message_constructor!(
         message_constructors,
-        "program_change",
+        ProgramChange,
+        "channel_voice",
         program,
         channel,
-        {
-            let mut message_koto = ValueMap::new();
-            let message = ProgramChange::new(*program, *channel);
-            message_koto.add_value("type", koto_string!("program_change"));
-            message_koto.add_value("category", koto_string!("channel_voice"));
-            message_koto.add_value("program", koto_number!(message.program()));
-            message_koto.add_value("channel", koto_number!(message.channel()));
-            impl_pack!(message_koto, message);
-            Ok(Value::Map(message_koto))
-        },
         "program_change requires a single list of exactly two positive integers as its argument"
     );
-    add_message_constructor_with_fields!(
+    message_constructor!(
         message_constructors,
-        "after_touch",
+        AfterTouch,
+        "channel_voice",
         pressure,
         channel,
-        {
-            let mut message_koto = ValueMap::new();
-            let message = AfterTouch::new(*pressure, *channel);
-            message_koto.add_value("type", koto_string!("after_touch"));
-            message_koto.add_value("category", koto_string!("channel_voice"));
-            message_koto.add_value("pressure", koto_number!(message.pressure()));
-            message_koto.add_value("channel", koto_number!(message.channel()));
-            impl_pack!(message_koto, message);
-            Ok(Value::Map(message_koto))
-        },
         "after_touch requires a single list of exactly two positive integers as its argument"
     );
 
-    add_message_constructor_with_fields!(
+    message_constructor!(
         message_constructors,
-        "pitch_bend",
+        PitchBend,
+        "channel_voice",
         bend_amount,
         channel,
-        {
-            let mut message_koto = ValueMap::new();
-            let message = PitchBend::new(*bend_amount, *channel);
-            message_koto.add_value("type", koto_string!("pitch_bend"));
-            message_koto.add_value("category", koto_string!("channel_voice"));
-            message_koto.add_value("bend_amount", koto_number!(message.bend_amount() as u64));
-            message_koto.add_value("channel", koto_number!(message.channel()));
-            impl_pack!(message_koto, message);
-            Ok(Value::Map(message_koto))
-        },
         "pitch_bend requires a single list of exactly two positive integers as its argument"
     );
-
-    add_message_constructor_with_fields!(
+    message_constructor!(
         message_constructors,
-        "all_sound_off",
+        AllSoundOff,
+        "channel_mode",
         value,
         channel,
-        {
-            let mut message_koto = ValueMap::new();
-            let message = AllSoundOff::new(*value, *channel);
-            message_koto.add_value("type", koto_string!("all_sound_off"));
-            message_koto.add_value("category", koto_string!("channel_mode"));
-            message_koto.add_value("value", koto_number!(message.value()));
-            message_koto.add_value("channel", koto_number!(message.channel()));
-            impl_pack!(message_koto, message);
-            Ok(Value::Map(message_koto))
-        },
         "all_sound_off requires a single list of exactly two positive integers as its argument"
     );
-    add_message_constructor_with_fields!(
+    message_constructor!(
         message_constructors,
-        "reset_all_controllers",
+        ResetAllControllers,
+        "channel_mode",
         value,
         channel,
-        {
-            let mut message_koto = ValueMap::new();
-            let message = ResetAllControllers::new(*value, *channel);
-            message_koto.add_value("type", koto_string!("reset_all_controllers"));
-                        message_koto.add_value("category", koto_string!("channel_mode"));
-            message_koto.add_value("value", koto_number!(message.value()));
-            message_koto.add_value("channel", koto_number!(message.channel()));
-            impl_pack!(message_koto, message);
-            Ok(Value::Map(message_koto))
-        },
         "reset_all_controllers requires a single list of exactly two positive integers as its argument"
     );
-    add_message_constructor_with_fields!(
+    message_constructor!(
         message_constructors,
-        "local_control",
+        LocalControl,
+        "channel_mode",
         value,
         channel,
-        {
-            let mut message_koto = ValueMap::new();
-            let message = LocalControl::new(*value, *channel);
-            message_koto.add_value("type", koto_string!("local_control"));
-            message_koto.add_value("category", koto_string!("channel_mode"));
-            message_koto.add_value("value", koto_number!(message.value()));
-            message_koto.add_value("channel", koto_number!(message.channel()));
-            impl_pack!(message_koto, message);
-            Ok(Value::Map(message_koto))
-        },
         "local_control requires a single list of exactly two positive integers as its argument"
     );
-    add_message_constructor_with_fields!(
+    message_constructor!(
         message_constructors,
-        "all_notes_off",
+        AllNotesOff,
+        "channel_mode",
         value,
         channel,
-        {
-            let mut message_koto = ValueMap::new();
-            let message = AllNotesOff::new(*value, *channel);
-            message_koto.add_value("type", koto_string!("all_notes_off"));
-            message_koto.add_value("category", koto_string!("channel_mode"));
-            message_koto.add_value("value", koto_number!(message.value()));
-            message_koto.add_value("channel", koto_number!(message.channel()));
-            impl_pack!(message_koto, message);
-            Ok(Value::Map(message_koto))
-        },
         "all_notes_off requires a single list of exactly two positive integers as its argument"
     );
-    add_message_constructor_with_fields!(
+    message_constructor!(
         message_constructors,
-        "omni_mode_off",
+        OmniModeOff,
+        "channel_mode",
         value,
         channel,
-        {
-            let mut message_koto = ValueMap::new();
-            let message = OmniModeOff::new(*value, *channel);
-            message_koto.add_value("type", koto_string!("omni_mode_off"));
-            message_koto.add_value("category", koto_string!("channel_mode"));
-            message_koto.add_value("value", koto_number!(message.value()));
-            message_koto.add_value("channel", koto_number!(message.channel()));
-            impl_pack!(message_koto, message);
-            Ok(Value::Map(message_koto))
-        },
         "omni_mode_off requires a single list of exactly two positive integers as its argument"
     );
-    add_message_constructor_with_fields!(
+    message_constructor!(
         message_constructors,
-        "omni_mode_on",
+        OmniModeOn,
+        "channel_mode",
         value,
         channel,
-        {
-            let mut message_koto = ValueMap::new();
-            let message = OmniModeOn::new(*value, *channel);
-            message_koto.add_value("type", koto_string!("omni_mode_on"));
-            message_koto.add_value("category", koto_string!("channel_mode"));
-            message_koto.add_value("value", koto_number!(message.value()));
-            message_koto.add_value("channel", koto_number!(message.channel()));
-            impl_pack!(message_koto, message);
-            Ok(Value::Map(message_koto))
-        },
         "omni_mode_on requires a single list of exactly two positive integers as its argument"
     );
-    add_message_constructor_with_fields!(
+    message_constructor!(
         message_constructors,
-        "mono_mode_on",
+        MonoModeOn,
+        "channel_mode",
         value,
         channel,
-        {
-            let mut message_koto = ValueMap::new();
-            let message = MonoModeOn::new(*value, *channel);
-            message_koto.add_value("type", koto_string!("mono_mode_on"));
-            message_koto.add_value("category", koto_string!("channel_mode"));
-            message_koto.add_value("value", koto_number!(message.value()));
-            message_koto.add_value("channel", koto_number!(message.channel()));
-            impl_pack!(message_koto, message);
-            Ok(Value::Map(message_koto))
-        },
         "mono_mode_on requires a single list of exactly two positive integers as its argument"
     );
-    add_message_constructor_with_fields!(
+    message_constructor!(
         message_constructors,
-        "poly_mode_on",
+        PolyModeOn,
+        "channel_mode",
         value,
         channel,
-        {
-            let mut message_koto = ValueMap::new();
-            let message = PolyModeOn::new(*value, *channel);
-            message_koto.add_value("type", koto_string!("poly_mode_on"));
-            message_koto.add_value("category", koto_string!("channel_mode"));
-            message_koto.add_value("value", koto_number!(message.value()));
-            message_koto.add_value("channel", koto_number!(message.channel()));
-            impl_pack!(message_koto, message);
-            Ok(Value::Map(message_koto))
-        },
         "poly_mode_on requires a single list of exactly two positive integers as its argument"
     );
 
@@ -487,13 +370,13 @@ pub fn make_module() -> ValueMap {
                                             match message.len() {
                                                 0 => runtime_error!(error_literal),
                                                 _ => {                                                        
-                                                    if let Ok(m_id) = collect_list_of_u8_for_sysex(manufacturer_id, error_literal) {
-                                                        if let Ok(data) = collect_list_of_u8_for_sysex(message, error_literal) {
+                                                    if let Ok(m_id) = collect_list_of_u8(manufacturer_id, error_literal) {
+                                                        if let Ok(data) = collect_list_of_u8(message, error_literal) {
                                                                 let mut message_koto = ValueMap::new();
                                                                 let message = SystemExclusive::new(&m_id[..], &data[..]);
-                                                                message_koto.add_value("type", koto_string!("system_exclusive"));
-                                                                message_koto.add_value("category", koto_string!("system_common"));
-                                                                let m_id = m_id.iter().map(|&x| koto_number!(x)).collect::<Vec<Value>>();
+                                                                message_koto.add_value("type", "system_exclusive".into());
+                                                                message_koto.add_value("category", "system_common".into());
+                                                                let m_id = m_id.iter().map(|&x| x.into()).collect::<Vec<Value>>();
                                                                 message_koto.add_value("manufacturer_id", Value::List(ValueList::from_slice(&m_id[..])));
                                                                 impl_pack!(message_koto, message);
                                                                 Ok(Value::Map(message_koto))
@@ -527,123 +410,75 @@ pub fn make_module() -> ValueMap {
 
     // TODO: Find out what are possible message types and values for time_code_quarter_frame
 
-    add_message_constructor_with_fields!(
+    message_constructor!(
         message_constructors,
-        "time_code_quarter_frame",
+        TimeCodeQuarterFrame,
+        "system_common",
         message_type,
         values,
-        {
-            let mut message_koto = ValueMap::new();
-            let message = TimeCodeQuarterFrame::new(*message_type, *values);
-            message_koto.add_value("type", koto_string!("song_position"));
-            message_koto.add_value("category", koto_string!("system_common"));
-            message_koto.add_value(
-                "message_type",
-                koto_number!(message.message_type() as u64),
-            );
-            message_koto.add_value(
-                "values",
-                koto_number!(message.values() as u64),
-            );
-            impl_pack!(message_koto, message);
-            Ok(Value::Map(message_koto))
-        },
         "time_code_quarter_frame requires a single list of exactly two positive integers as its argument"
     );
-
-    add_message_constructor_with_fields!(
+    message_constructor!(
         message_constructors,
-        "song_position",
+        SongPosition,
+        "system_common",
         midi_beats_elapsed,
-        {
-            let mut message_koto = ValueMap::new();
-            let message = SongPosition::new(*midi_beats_elapsed);
-            message_koto.add_value("type", koto_string!("song_position"));
-            message_koto.add_value("category", koto_string!("system_common"));
-            message_koto.add_value(
-                "midi_beats_elapsed",
-                koto_number!(message.midi_beats_elapsed() as u64),
-            );
-            message_koto.add_value(
-                "midi_clocks_elapsed",
-                koto_number!((message.midi_beats_elapsed() as u64) * 6),
-            );
-            impl_pack!(message_koto, message);
-            Ok(Value::Map(message_koto))
-        },
         "song_position requires a single list of exactly one positive integer as its argument"
     );
-
-    add_message_constructor_with_fields!(
+    message_constructor!(
         message_constructors,
-        "song_select",
+        SongSelect,
+        "system_common",
         number,
-        {
-            let mut message_koto = ValueMap::new();
-            let message = SongSelect::new(*number);
-            message_koto.add_value("type", koto_string!("song_select"));
-            message_koto.add_value("category", koto_string!("system_common"));
-            message_koto.add_value("number", koto_number!(message.number() as u64));
-            impl_pack!(message_koto, message);
-            Ok(Value::Map(message_koto))
-        },
         "song_select requires a single list of exactly one positive integer as its argument"
     );
 
-    add_plain_message_constructor!(
+    message_constructor!(
         message_constructors,
-        "tune_request",
-        "system_common",
         TuneRequest,
+        "system_common",
         "tune_request does not take any arguments"
     );
-    add_plain_message_constructor!(
-        message_constructors,
-        "end_of_exclusive",
-        "system_common",
+    message_constructor!(
+        message_constructors,       
         EndOfExclusive,
+        "system_common",
         "end_of_exclusive does not take any arguments"
     );
-    add_plain_message_constructor!(
+    message_constructor!(
         message_constructors,
-        "timing_clock",
-        "system_realtime",
         TimingClock,
+        "system_realtime",      
         "timing_clock does not take any arguments"
     );
-    add_plain_message_constructor!(
+    message_constructor!(
         message_constructors,
-        "start",
-        "system_realtime",
         Start,
+        "system_realtime", 
         "start does not take any arguments"
     );
-    add_plain_message_constructor!(
+    message_constructor!(
         message_constructors,
-        "continue",
-        "system_realtime",
         Continue,
+        "system_realtime",
         "continue does not take any arguments"
     );
-    add_plain_message_constructor!(
+    message_constructor!(
         message_constructors,
-        "stop",
-        "system_realtime",
         Stop,
+        "system_realtime",
         "stop does not take any arguments"
     );
-    add_plain_message_constructor!(
+    message_constructor!(
         message_constructors,
-        "active_sensing",
-        "system_realtime",
         ActiveSensing,
+        "system_realtime",
         "active_sensing does not take any arguments"
     );
-    add_plain_message_constructor!(
+    message_constructor!(
         message_constructors,
-        "reset",
-        "system_realtime",
         Reset,
+        "system_realtime",
         "reset does not take any arguments"
     );
 
@@ -667,7 +502,7 @@ pub fn make_module() -> ValueMap {
                             | Message::PitchBend(_)
                             | Message::AfterTouch(_)
                             | Message::PolyAfterTouch(_) => {
-                                message_koto.add_value("category", koto_string!("channel_voice"))
+                                message_koto.add_value("category", "channel_voice".into())
                             }
                             Message::AllSoundOff(_)
                             | Message::ResetAllControllers(_)
@@ -677,7 +512,7 @@ pub fn make_module() -> ValueMap {
                             | Message::OmniModeOn(_)
                             | Message::MonoModeOn(_)
                             | Message::PolyModeOn(_) => {
-                                message_koto.add_value("category", koto_string!("channel_mode"))
+                                message_koto.add_value("category", "channel_mode".into())
                             }
                             Message::SystemExclusive(_)
                             | Message::SongPosition(_)
@@ -685,7 +520,7 @@ pub fn make_module() -> ValueMap {
                             | Message::TuneRequest(_)
                             | Message::EndOfExclusive(_)
                             | Message::TimeCodeQuarterFrame(_) => {
-                                message_koto.add_value("category", koto_string!("system_common"))
+                                message_koto.add_value("category", "system_common".into())
                             }
                             Message::TimingClock(_)
                             | Message::Start(_)
@@ -693,205 +528,201 @@ pub fn make_module() -> ValueMap {
                             | Message::Stop(_)
                             | Message::ActiveSensing(_)
                             | Message::Reset(_) => {
-                                message_koto.add_value("category", koto_string!("system_realtime"))
+                                message_koto.add_value("category", "system_realtime".into())
                             }
                             Message::Undefined | Message::Malformed => {
-                                message_koto.add_value("category", koto_string!("unknown"))
+                                message_koto.add_value("category", "unknown".into())
                             }
                         };
 
                         match message {
                             Message::NoteOff(message) => {
-                                message_koto.add_value("type", koto_string!("note_off"));
-                                message_koto.add_value("note", koto_number!(message.note()));
+                                message_koto.add_value("type", "note_off".into());
+                                message_koto.add_value("note", message.note().into());
                                 message_koto
-                                    .add_value("velocity", koto_number!(message.velocity()));
-                                message_koto.add_value("channel", koto_number!(message.channel()));
+                                    .add_value("velocity", message.velocity().into());
+                                message_koto.add_value("channel", message.channel().into());
                                 impl_pack!(message_koto, message);
                             }
                             Message::NoteOn(message) => {
-                                message_koto.add_value("type", koto_string!("note_on"));
-                                message_koto.add_value("note", koto_number!(message.note()));
+                                message_koto.add_value("type", "note_on".into());
+                                message_koto.add_value("note", message.note().into());
                                 message_koto
-                                    .add_value("velocity", koto_number!(message.velocity()));
-                                message_koto.add_value("channel", koto_number!(message.channel()));
+                                    .add_value("velocity", message.velocity().into());
+                                message_koto.add_value("channel", message.channel().into());
                                 impl_pack!(message_koto, message);
                             }
                             Message::ControlChange(message) => {
-                                message_koto.add_value("type", koto_string!("control_change"));
-                                message_koto.add_value("note", koto_number!(message.note()));
-                                message_koto.add_value("value", koto_number!(message.value()));
-                                message_koto.add_value("channel", koto_number!(message.channel()));
+                                message_koto.add_value("type", "control_change".into());
+                                message_koto.add_value("note", message.note().into());
+                                message_koto.add_value("value", message.value().into());
+                                message_koto.add_value("channel", message.channel().into());
                                 impl_pack!(message_koto, message);
                             }
                             Message::ProgramChange(message) => {
-                                message_koto.add_value("type", koto_string!("program_change"));
-                                message_koto.add_value("program", koto_number!(message.program()));
-                                message_koto.add_value("channel", koto_number!(message.channel()));
+                                message_koto.add_value("type", "program_change".into());
+                                message_koto.add_value("program", message.program().into());
+                                message_koto.add_value("channel", message.channel().into());
                                 impl_pack!(message_koto, message);
                             }
 
                             Message::AfterTouch(message) => {
-                                message_koto.add_value("type", koto_string!("after_touch"));
+                                message_koto.add_value("type", "after_touch".into());
 
                                 message_koto
-                                    .add_value("pressure", koto_number!(message.pressure()));
-                                message_koto.add_value("channel", koto_number!(message.channel()));
+                                    .add_value("pressure", message.pressure().into());
+                                message_koto.add_value("channel", message.channel().into());
                                 impl_pack!(message_koto, message);
                             }
                             Message::PolyAfterTouch(message) => {
-                                message_koto.add_value("note", koto_number!(message.note()));
-                                message_koto.add_value("type", koto_string!("poly_after_touch"));
+                                message_koto.add_value("note", message.note().into());
+                                message_koto.add_value("type", "poly_after_touch".into());
                                 message_koto
-                                    .add_value("pressure", koto_number!(message.pressure()));
-                                message_koto.add_value("channel", koto_number!(message.channel()));
+                                    .add_value("pressure", message.pressure().into());
+                                message_koto.add_value("channel", message.channel().into());
                                 impl_pack!(message_koto, message);
                             }
                             Message::PitchBend(message) => {
-                                message_koto.add_value("type", koto_string!("pitch_bend"));
+                                message_koto.add_value("type", "pitch_bend".into());
                                 message_koto.add_value(
                                     "bend_amount",
-                                    koto_number!(message.bend_amount() as i64),
+                                    (message.bend_amount() as i64).into(),
                                 );
-                                message_koto.add_value("channel", koto_number!(message.channel()));
+                                message_koto.add_value("channel", message.channel().into());
                                 impl_pack!(message_koto, message);
                             }
                             Message::AllSoundOff(message) => {
-                                message_koto.add_value("type", koto_string!("all_sound_off"));
-                                message_koto.add_value("note", koto_number!(120));
-                                message_koto.add_value("value", koto_number!(message.value()));
-                                message_koto.add_value("channel", koto_number!(message.channel()));
+                                message_koto.add_value("type", "all_sound_off".into());
+                                message_koto.add_value("note", 120.into());
+                                message_koto.add_value("value", message.value().into());
+                                message_koto.add_value("channel", message.channel().into());
                                 impl_pack!(message_koto, message);
                             }
                             Message::ResetAllControllers(message) => {
                                 message_koto
-                                    .add_value("type", koto_string!("reset_all_controllers"));
-                                message_koto.add_value("note", koto_number!(121));
-                                message_koto.add_value("value", koto_number!(message.value()));
-                                message_koto.add_value("channel", koto_number!(message.channel()));
+                                    .add_value("type", "reset_all_controllers".into());
+                                message_koto.add_value("note", 121.into());
+                                message_koto.add_value("value", message.value().into());
+                                message_koto.add_value("channel", message.channel().into());
                                 impl_pack!(message_koto, message);
                             }
                             Message::LocalControl(message) => {
-                                message_koto.add_value("type", koto_string!("local_control"));
-                                message_koto.add_value("note", koto_number!(122));
-                                message_koto.add_value("value", koto_number!(message.value()));
-                                message_koto.add_value("channel", koto_number!(message.channel()));
+                                message_koto.add_value("type", "local_control".into());
+                                message_koto.add_value("note", 122.into());
+                                message_koto.add_value("value", message.value().into());
+                                message_koto.add_value("channel", message.channel().into());
                                 impl_pack!(message_koto, message);
                             }
                             Message::AllNotesOff(message) => {
-                                message_koto.add_value("type", koto_string!("all_notes_off"));
-                                message_koto.add_value("note", koto_number!(123));
-                                message_koto.add_value("value", koto_number!(message.value()));
-                                message_koto.add_value("channel", koto_number!(message.channel()));
+                                message_koto.add_value("type", "all_notes_off".into());
+                                message_koto.add_value("note", 123.into());
+                                message_koto.add_value("value", message.value().into());
+                                message_koto.add_value("channel", message.channel().into());
                                 impl_pack!(message_koto, message);
                             }
                             Message::OmniModeOff(message) => {
-                                message_koto.add_value("type", koto_string!("omni_mode_off"));
-                                message_koto.add_value("note", koto_number!(124));
-                                message_koto.add_value("value", koto_number!(message.value()));
-                                message_koto.add_value("channel", koto_number!(message.channel()));
+                                message_koto.add_value("type", "omni_mode_off".into());
+                                message_koto.add_value("note", 124.into());
+                                message_koto.add_value("value", message.value().into());
+                                message_koto.add_value("channel", message.channel().into());
                                 impl_pack!(message_koto, message);
                             }
                             Message::OmniModeOn(message) => {
-                                message_koto.add_value("type", koto_string!("omni_mode_on"));
-                                message_koto.add_value("note", koto_number!(125));
-                                message_koto.add_value("value", koto_number!(message.value()));
-                                message_koto.add_value("channel", koto_number!(message.channel()));
+                                message_koto.add_value("type", "omni_mode_on".into());
+                                message_koto.add_value("note", 125.into());
+                                message_koto.add_value("value", message.value().into());
+                                message_koto.add_value("channel", message.channel().into());
                                 impl_pack!(message_koto, message);
                             }
                             Message::MonoModeOn(message) => {
-                                message_koto.add_value("type", koto_string!("mono_mode_on"));
-                                message_koto.add_value("note", koto_number!(126));
-                                message_koto.add_value("value", koto_number!(message.value()));
-                                message_koto.add_value("channel", koto_number!(message.channel()));
+                                message_koto.add_value("type", "mono_mode_on".into());
+                                message_koto.add_value("note", 126.into());
+                                message_koto.add_value("value", message.value().into());
+                                message_koto.add_value("channel", message.channel().into());
                                 impl_pack!(message_koto, message);
                             }
                             Message::PolyModeOn(message) => {
-                                message_koto.add_value("type", koto_string!("poly_mode_on"));
-                                message_koto.add_value("note", koto_number!(127));
-                                message_koto.add_value("value", koto_number!(message.value()));
-                                message_koto.add_value("channel", koto_number!(message.channel()));
+                                message_koto.add_value("type", "poly_mode_on".into());
+                                message_koto.add_value("note", 127.into());
+                                message_koto.add_value("value", message.value().into());
+                                message_koto.add_value("channel", message.channel().into());
                                 impl_pack!(message_koto, message);
                             }
                             Message::SystemExclusive(message) => {
-                                message_koto.add_value("type", koto_string!("system_exclusive"));
-                                let m_id = message.manufacturer_id.iter().map(|&x| koto_number!(x)).collect::<Vec<Value>>();
+                                message_koto.add_value("type", "system_exclusive".into());
+                                let m_id = message.manufacturer_id.iter().map(|&x| x.into()).collect::<Vec<Value>>();
                                 message_koto.add_value("manufacturer_id", Value::List(ValueList::from_slice(&m_id[..])));
                                 impl_pack!(message_koto, message);
                             }
                             Message::SongPosition(message) => {
-                                message_koto.add_value("type", koto_string!("song_position"));
+                                message_koto.add_value("type", "song_position".into());
                                 message_koto.add_value(
                                     "midi_beats_elapsed",
-                                    koto_number!(message.midi_beats_elapsed() as i64),
-                                );
-                                message_koto.add_value(
-                                    "midi_clocks_elapsed",
-                                    koto_number!(message.midi_clocks_elapsed()),
+                                    (message.midi_beats_elapsed() as u64).into(),
                                 );
                                 impl_pack!(message_koto, message);
                             }
                             Message::SongSelect(message) => {
-                                message_koto.add_value("type", koto_string!("song_select"));
-                                message_koto.add_value("number", koto_number!(message.number()));
+                                message_koto.add_value("type", "song_select".into());
+                                message_koto.add_value("number", message.number().into());
                                 impl_pack!(message_koto, message);
                             }
                             Message::TuneRequest(message) => {
-                                message_koto.add_value("type", koto_string!("tune_request"));
+                                message_koto.add_value("type", "tune_request".into());
                                 impl_pack!(message_koto, message);
                             }
                             Message::EndOfExclusive(message) => {
-                                message_koto.add_value("type", koto_string!("end_of_exclusive"));
+                                message_koto.add_value("type", "end_of_exclusive".into());
                                 impl_pack!(message_koto, message);
                             }
                             Message::TimeCodeQuarterFrame(message) => {
                                 message_koto
-                                    .add_value("type", koto_string!("time_code_quarter_frame"));
+                                    .add_value("type", "time_code_quarter_frame".into());
                                 message_koto.add_value(
                                     "message_type",
-                                    koto_number!(message.message_type()),
+                                    message.message_type().into(),
                                 );
-                                message_koto.add_value("values", koto_number!(message.values()));
+                                message_koto.add_value("values", message.values().into());
                                 impl_pack!(message_koto, message);
                             }
                             Message::TimingClock(message) => {
-                                message_koto.add_value("type", koto_string!("timing_clock"));
+                                message_koto.add_value("type", "timing_clock".into());
                                 impl_pack!(message_koto, message);
                             }
                             Message::Start(message) => {
-                                message_koto.add_value("type", koto_string!("start"));
+                                message_koto.add_value("type", "start".into());
                                 impl_pack!(message_koto, message);
                             }
                             Message::Continue(message) => {
-                                message_koto.add_value("type", koto_string!("continue"));
+                                message_koto.add_value("type", "continue".into());
                                 impl_pack!(message_koto, message);
                             }
                             Message::Stop(message) => {
-                                message_koto.add_value("type", koto_string!("stop"));
+                                message_koto.add_value("type", "stop".into());
                                 impl_pack!(message_koto, message);
                             }
                             Message::ActiveSensing(message) => {
-                                message_koto.add_value("type", koto_string!("active_sensing"));
+                                message_koto.add_value("type", "active_sensing".into());
                                 impl_pack!(message_koto, message);
                             }
                             Message::Reset(message) => {
-                                message_koto.add_value("type", koto_string!("reset"));
+                                message_koto.add_value("type", "reset".into());
                                 impl_pack!(message_koto, message);
                             }
                             Message::Undefined => {
-                                message_koto.add_value("type", koto_string!("undefined"));
-                                message_koto.add_value("category", koto_string!("unknown"));
+                                message_koto.add_value("type", "undefined".into());
+                                message_koto.add_value("category", "unknown".into());
                             }
                             Message::Malformed => {
-                                message_koto.add_value("type", koto_string!("malformed"));
-                                message_koto.add_value("category", koto_string!("unknown"));
+                                message_koto.add_value("type", "malformed".into());
+                                message_koto.add_value("category", "unknown".into());
                             }
                         }
 
                         Ok(Value::Map(message_koto))
                     } else {
-                        message_koto.add_value("type", koto_string!("malformed"));
-                        message_koto.add_value("category", koto_string!("unknown"));
+                        message_koto.add_value("type", "malformed".into());
+                        message_koto.add_value("category", "unknown".into());
                         // Returns an empty value if the message is malformed.
                         Ok(Value::Map(message_koto))
                     }
