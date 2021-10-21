@@ -136,7 +136,7 @@ macro_rules! make_koto_message_constructor {
                                 let mut message_koto = ValueMap::new();
                                 // dbg!($(*$field),*);
                                 let message = <$enum_key>::new($(*$field),*);
-                                dbg!(&message);
+                                // dbg!(&message);
                                 message_koto.add_value("type", name_literal.clone().into());
                                 message_koto.add_value("category", $category_literal.into());
                                 $(
