@@ -275,11 +275,7 @@ impl PitchBend {
         let msb = ((bend_amount >> 7) as u8) & 0b0111_1111;
         let lsb = (bend_amount as u8) & 0b0111_1111;
         Self {
-            bytes: [
-                0xE0 | channel.min(15) as u8,
-                lsb.min(127) as u8,
-                msb.min(127) as u8,
-            ],
+            bytes: [0xE0 | channel.min(15) as u8, lsb.min(127), msb.min(127)],
             bend_amount,
             category: Category::ChannelVoice,
         }

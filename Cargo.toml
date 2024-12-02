@@ -1,5 +1,5 @@
 [workspace]
-members = [
-  "midi",
-  "test_runner",
-]
+members = ["koto-midi", "test-runner"]
+
+[workspace.dependencies]
+koto = "0.14"

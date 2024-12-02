@@ -1,23 +1,24 @@
+from koto import size
 from test import assert
 import midi
 
-export @tests =
-  @test list_types: 
-    io.print "\n## koto_midi api summarry ##"
+export 
+  @test list_types:
+    io.print "\n## koto_midi api summary ##"
     io.print "\ntypes of messages"
     io.print "|"
     midi.types.keys().each(|key|
-      io.print "| midi.types.${key} = \"$key\""
+      io.print '| midi.types.{key} = {key}'
     ).consume()
 
     io.print "|_"
     assert true
 
-  @test list_categories: 
+  @test list_categories:
     io.print "\ncategories of messages"
     io.print "|"
     midi.categories.keys().each(|key|
-      io.print "| midi.categories.${key} = \"$key\""
+      io.print '| midi.categories.{key} = {key}'
     ).consume()
 
     io.print "|_"
@@ -27,12 +28,12 @@ export @tests =
     io.print "\nmodule level methods"
     io.print "|"
     midi.keys().each(|key|
-    #   io.print key
-      if (koto.type midi."$key") == "ExternalFunction"
+      if (koto.type midi.'{key}') == "Function"
         if key == "parse"
-          io.print "| # This function expects a single list of positive integers as its argument."
-          io.print "| # It will return a message map. One of the types in \"midi.message\" or throw a runtime error."
-          io.print "| midi.${key} = ${midi."$key"}"
+          value = midi.parse
+          io.print '| # This function expects a single list of positive integers as its argument.'
+          io.print '| # It will return a message map. One of the types in "midi.message" or throw a runtime error.'
+          io.print '| midi.{key} = {value}'
     ).consume()
 
     io.print "|_"
@@ -84,21 +85,21 @@ export @tests =
         if msg_map.type == "song_position"
           if key == "midi_clocks_elapsed"
             continue
-        if cnt == construction_keys.size() or msg_map.type == "song_position"
-          info_string += "<$key>"
+        if cnt == (size construction_keys) or msg_map.type == "song_position"
+          info_string = info_string + '<{key}>'
         else
-          info_string += "<$key>, "
-      info_string += "]"
+          info_string = info_string + '<{key}>, '
+      info_string = info_string + "]"
       if msg_map.type == "system_exclusive"
         info_string = "[<manufacturer_id>, <message>]"
-      if construction_keys.size() > 0
-        io.print "| midi.message.${msg_map.type} $info_string"
+      if (size construction_keys) > 0
+        io.print '| midi.message.{msg_map.type} {info_string}'
       else
-        io.print "| midi.message.${msg_map.type} # no arguments needed"
+        io.print '| midi.message.{msg_map.type} # no arguments needed'
 
       io.print "|  # returns a map with following keys"
       msg_map.keys().each(|key|
-        io.print "|      $key"
+        io.print '|      {key}'
       ).consume()
       io.print "|  # or"
       io.print "|      ()"

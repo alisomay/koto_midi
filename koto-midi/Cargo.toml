@@ -1,6 +1,6 @@
 [package]
-name = "koto_midi"
-version = "0.0.1"
+name = "koto-midi"
+version = "0.1.0"
 authors = ["alisomay <alisomay@runbox.com>"]
 edition = "2021"
 license = "MIT"
@@ -10,4 +10,4 @@ repository = "https://github.com/alisomay/koto_midi"
 keywords = ["scripting", "module", "koto"]
 
 [dependencies]
-koto = { git = "https://github.com/koto-lang/koto", branch= "main" } # latest unreleased koto
+koto = { workspace = true }

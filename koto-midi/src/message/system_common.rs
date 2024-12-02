@@ -125,7 +125,7 @@ impl SongPosition {
         let msb = ((midi_beats_elapsed >> 7) as u8) & 0b0111_1111;
         let lsb = (midi_beats_elapsed as u8) & 0b0111_1111;
         Self {
-            bytes: [0xF2, lsb.min(127) as u8, msb.min(127) as u8],
+            bytes: [0xF2, lsb.min(127), msb.min(127)],
             midi_beats_elapsed,
             category: Category::SystemCommon,
         }

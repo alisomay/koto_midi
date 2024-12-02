@@ -1,24 +1,25 @@
-#![feature(exclusive_range_pattern)]
-
 mod message;
 use message::*;
 
-use koto::runtime::{
-    runtime_error, RuntimeError, Value, ValueList, ValueMap, ValueNumber,
-};
+use koto::prelude::*;
+use koto::runtime::KList;
+use koto::runtime::KNumber;
+use koto::runtime::KMap;
+use koto::runtime::KValue;
+use koto::Error as RuntimeError;
 
 // TODO: Solve unnecessary repetition of list collectors for different types ot cases if there is.
 pub fn collect_list_of_midi_bytes_as_u8(
-    message: &ValueList,
+    message: &KList,
     error: &str,
 ) -> std::result::Result<Vec<u8>, RuntimeError> {
     let arguments = message
         .data()
         .iter()
         .map(|v| match v {
-            Value::Number(num) => match num {
+            KValue::Number(num) => match num {
                 // Truncate.
-                ValueNumber::I64(midi_byte) if *midi_byte >= 0 && *midi_byte < 128 => Ok(*midi_byte as u8),
+                KNumber::I64(midi_byte) if *midi_byte >= 0 && *midi_byte < 128 => Ok(*midi_byte as u8),
                 _ => runtime_error!(error),
             },
             _ => {
@@ -30,16 +31,16 @@ pub fn collect_list_of_midi_bytes_as_u8(
 }
 
 pub fn collect_list_of_u8(
-    message: &ValueList,
+    message: &KList,
     error: &str,
 ) -> std::result::Result<Vec<u8>, RuntimeError> {
     let arguments = message
         .data()
         .iter()
         .map(|v| match v {
-            Value::Number(num) => match num {
+            KValue::Number(num) => match num {
                 // Truncate.
-                ValueNumber::I64(byte) if *byte >= 0 && *byte <= 255 => Ok(*byte as u8),
+                KNumber::I64(byte) if *byte >= 0 && *byte <= 255 => Ok(*byte as u8),
                 _ => runtime_error!(error),
             },
             _ => {
@@ -50,16 +51,16 @@ pub fn collect_list_of_u8(
     arguments
 }
 pub fn collect_list_of_u64(
-    message: &ValueList,
+    message: &KList,
     error: &str,
 ) -> std::result::Result<Vec<u64>, RuntimeError> {
     let arguments = message
         .data()
         .iter()
         .map(|v| match v {
-            Value::Number(num) => match num {
+            KValue::Number(num) => match num {
                 // Truncate.
-                ValueNumber::I64(midi_byte) if *midi_byte >= 0 => Ok(*midi_byte as u64),
+                KNumber::I64(midi_byte) if *midi_byte >= 0 => Ok(*midi_byte as u64),
                 _ => runtime_error!(error),
             },
             _ => {
@@ -71,19 +72,19 @@ pub fn collect_list_of_u64(
 }
 
 pub fn collect_list_of_value_list(
-    message: &ValueList,
+    message: &KList,
     error: &str,
-) -> std::result::Result<Vec<ValueList>, RuntimeError> {
+) -> std::result::Result<Vec<KList>, RuntimeError> {
     let arguments = message
         .data()
         .iter()
         .map(|v| match v {
-            Value::List(list) => Ok(list.clone()),
+            KValue::List(list) => Ok(list.clone()),
             _ => {
                 runtime_error!(error)
             }
         })
-        .collect::<std::result::Result<Vec<ValueList>, RuntimeError>>();
+        .collect::<std::result::Result<Vec<KList>, RuntimeError>>();
     arguments
 }
 
@@ -107,18 +108,19 @@ fn pascal_case_to_underscore_separated_literal(string_to_process: &str) -> std::
 
 macro_rules! types {
     ($map:ident,$($type_literal:literal),*) => {
-        $($map.add_value($type_literal, $type_literal.into());)*
+        $($map.insert($type_literal, $type_literal);)*
     }
 }
+
 macro_rules! impl_pack {
     ($map:ident, $message:ident) => {
-        $map.add_fn("pack", move |_, _| {
-            Ok(Value::List(ValueList::from_slice(
+        $map.add_fn("pack", move |_| {
+            Ok(KValue::List(KList::from_slice(
                 &$message
                     .pack()
                     .into_iter()
                     .map(|byte| byte.into())
-                    .collect::<Vec<Value>>()[..],
+                    .collect::<Vec<KValue>>()[..],
             )))
         });
     };
@@ -127,30 +129,31 @@ macro_rules! impl_pack {
 macro_rules! make_koto_message_constructor {
     ($map:ident, $enum_key:ident, $category_literal:literal, $($field:ident),*, $error_literal:literal) => {
         let name_literal = pascal_case_to_underscore_separated_literal(stringify!($enum_key));
-        $map.add_fn(&name_literal.clone(), move |vm, args| {
-            if vm.get_args(&args).len() == 1 {
-                match vm.get_args(&args) {
-                    [Value::List(message)] => {
+        $map.add_fn(&name_literal.clone(), move |ctx| {
+            let args = ctx.args();
+            if args.len() == 1 {
+                match args {
+                    [KValue::List(message)] => {
                         if let Ok(arguments) = collect_list_of_u64(message, $error_literal) {
                             if let [$($field),*] = &arguments[..] {
-                                let mut message_koto = ValueMap::new();
+                                let message_koto = KMap::new();
                                 // dbg!($(*$field),*);
                                 let message = <$enum_key>::new($(*$field),*);
                                 // dbg!(&message);
-                                message_koto.add_value("type", name_literal.clone().into());
-                                message_koto.add_value("category", $category_literal.into());
+                                message_koto.insert("type", name_literal.clone());
+                                message_koto.insert("category", $category_literal);
                                 $(
                                 //   dbg!($field);
-                                  message_koto.add_value(stringify!($field), message.$field().into());
+                                  message_koto.insert(stringify!($field), message.$field());
                                 )*
                                 impl_pack!(message_koto, message);
-                                Ok(Value::Map(message_koto))
+                                Ok(KValue::Map(message_koto))
                             }
                             else {
                             runtime_error!($error_literal)
                             }
                         } else {
-                            Ok(Value::Empty)
+                            Ok(KValue::Null)
                         }
                     }
                     _ => runtime_error!($error_literal),
@@ -163,14 +166,15 @@ macro_rules! make_koto_message_constructor {
 
     ($map:ident, $enum_key:ty, $category_literal:literal, $error_literal:literal) => {
         let name_literal = pascal_case_to_underscore_separated_literal(stringify!($enum_key));
-        $map.add_fn(&name_literal.clone(), move |vm, args| {
-            if vm.get_args(&args).len() == 0 {
-                let mut message_koto = ValueMap::new();
+        $map.add_fn(&name_literal.clone(), move |ctx| {
+            let args = ctx.args();
+            if args.is_empty() {
+                let message_koto = KMap::new();
                 let message = <$enum_key>::default();
-                message_koto.add_value("type", name_literal.clone().into());
-                message_koto.add_value("category", $category_literal.into());
+                message_koto.insert("type", name_literal.clone());
+                message_koto.insert("category", $category_literal);
                 impl_pack!(message_koto, message);
-                Ok(Value::Map(message_koto))
+                Ok(KValue::Map(message_koto))
             } else {
                 runtime_error!($error_literal)
             }
@@ -181,19 +185,19 @@ macro_rules! make_koto_message_constructor {
 
 macro_rules! make_koto_message {
     ($map:ident, $message:ident, $name_literal:literal,$($field:ident),*) => { 
-        $map.add_value("type", $name_literal.into());
+        $map.insert("type", $name_literal);
         $(
-            $map.add_value(stringify!($field),$message.$field().into());
+            $map.insert(stringify!($field),$message.$field());
         )*
         impl_pack!($map, $message);
     }
 }
 
 
-pub fn make_module() -> ValueMap {
-    let mut module = ValueMap::new();
-
-    let mut types = ValueMap::new();
+pub fn make_module() -> KMap {
+    let module = KMap::new();
+    let types = KMap::new();
+    
     types!(
         types,
         "note_off",
@@ -227,7 +231,8 @@ pub fn make_module() -> ValueMap {
         "malformed"
     );
 
-    let mut categories = ValueMap::new();
+    let categories = KMap::new();
+    
     types!(
         categories,
         "channel_voice",
@@ -237,7 +242,7 @@ pub fn make_module() -> ValueMap {
         "unknown"
     );
 
-    let mut message_constructors = ValueMap::new();
+    let message_constructors = KMap::new();
 
     make_koto_message_constructor!(
         message_constructors,
@@ -248,6 +253,7 @@ pub fn make_module() -> ValueMap {
         channel,
         "note_off requires a single list of exactly three integers as its argument"
     );
+   
     make_koto_message_constructor!(
         message_constructors,
         NoteOn,
@@ -257,6 +263,7 @@ pub fn make_module() -> ValueMap {
         channel,
         "note_on requires a single list of exactly three integers as its argument"
     );
+   
     make_koto_message_constructor!(
         message_constructors,
         PolyAfterTouch,
@@ -266,6 +273,7 @@ pub fn make_module() -> ValueMap {
         channel,
         "poly_after_touch requires a single list of exactly three integers as its argument"
     );
+    
     make_koto_message_constructor!(
         message_constructors,
         ControlChange,
@@ -275,6 +283,7 @@ pub fn make_module() -> ValueMap {
         channel,
         "control_change requires a single list of exactly three integers as its argument"
     );
+    
     make_koto_message_constructor!(
         message_constructors,
         ProgramChange,
@@ -283,6 +292,7 @@ pub fn make_module() -> ValueMap {
         channel,
         "program_change requires a single list of exactly two positive integers as its argument"
     );
+    
     make_koto_message_constructor!(
         message_constructors,
         AfterTouch,
@@ -300,6 +310,7 @@ pub fn make_module() -> ValueMap {
         channel,
         "pitch_bend requires a single list of exactly two positive integers as its argument"
     );
+    
     make_koto_message_constructor!(
         message_constructors,
         AllSoundOff,
@@ -308,6 +319,7 @@ pub fn make_module() -> ValueMap {
         channel,
         "all_sound_off requires a single list of exactly two positive integers as its argument"
     );
+   
     make_koto_message_constructor!(
         message_constructors,
         ResetAllControllers,
@@ -316,6 +328,7 @@ pub fn make_module() -> ValueMap {
         channel,
         "reset_all_controllers requires a single list of exactly two positive integers as its argument"
     );
+    
     make_koto_message_constructor!(
         message_constructors,
         LocalControl,
@@ -324,6 +337,7 @@ pub fn make_module() -> ValueMap {
         channel,
         "local_control requires a single list of exactly two positive integers as its argument"
     );
+    
     make_koto_message_constructor!(
         message_constructors,
         AllNotesOff,
@@ -332,6 +346,7 @@ pub fn make_module() -> ValueMap {
         channel,
         "all_notes_off requires a single list of exactly two positive integers as its argument"
     );
+    
     make_koto_message_constructor!(
         message_constructors,
         OmniModeOff,
@@ -340,6 +355,7 @@ pub fn make_module() -> ValueMap {
         channel,
         "omni_mode_off requires a single list of exactly two positive integers as its argument"
     );
+    
     make_koto_message_constructor!(
         message_constructors,
         OmniModeOn,
@@ -348,6 +364,7 @@ pub fn make_module() -> ValueMap {
         channel,
         "omni_mode_on requires a single list of exactly two positive integers as its argument"
     );
+    
     make_koto_message_constructor!(
         message_constructors,
         MonoModeOn,
@@ -356,6 +373,7 @@ pub fn make_module() -> ValueMap {
         channel,
         "mono_mode_on requires a single list of exactly two positive integers as its argument"
     );
+    
     make_koto_message_constructor!(
         message_constructors,
         PolyModeOn,
@@ -367,11 +385,12 @@ pub fn make_module() -> ValueMap {
 
     // TODO: This is a very basic sysex implementation. It might be extended later. Find out if it is necessary.
 
-    message_constructors.add_fn("system_exclusive", |vm, args| {
+    message_constructors.add_fn("system_exclusive", |ctx| {
                 let error_literal = "system_exclusive requires a list with single or 3 bytes for its first argument and a list with one or more bytes for its second argument";
-                if vm.get_args(&args).len() == 2 {
-                    match vm.get_args(&args) {
-                        [Value::List(message)] => {
+                let args = ctx.args();
+                if args.len() == 2 {
+                    match args {
+                        [KValue::List(message)] => {
                             if let Ok(arguments) = collect_list_of_value_list(message, error_literal) {
                                 if let [manufacturer_id,message] = &arguments[..] {
                                     match manufacturer_id.len() {
@@ -381,14 +400,14 @@ pub fn make_module() -> ValueMap {
                                                 _ => {                                                        
                                                     if let Ok(m_id) = collect_list_of_u8(manufacturer_id, error_literal) {
                                                         if let Ok(data) = collect_list_of_u8(message, error_literal) {
-                                                                let mut message_koto = ValueMap::new();
+                                                                let message_koto = KMap::new();
                                                                 let message = SystemExclusive::new(&m_id[..], &data[..]);
-                                                                message_koto.add_value("type", "system_exclusive".into());
-                                                                message_koto.add_value("category", "system_common".into());
-                                                                let m_id = m_id.iter().map(|&x| x.into()).collect::<Vec<Value>>();
-                                                                message_koto.add_value("manufacturer_id", Value::List(ValueList::from_slice(&m_id[..])));
+                                                                message_koto.insert("type", "system_exclusive");
+                                                                message_koto.insert("category", "system_common");
+                                                                let m_id = m_id.iter().map(|&x| x.into()).collect::<Vec<KValue>>();
+                                                                message_koto.insert("manufacturer_id", KValue::List(KList::from_slice(&m_id[..])));
                                                                 impl_pack!(message_koto, message);
-                                                                Ok(Value::Map(message_koto))
+                                                                Ok(KValue::Map(message_koto))
                                                         }
                                                         else{ 
                                                             runtime_error!(error_literal)
@@ -407,7 +426,7 @@ pub fn make_module() -> ValueMap {
                                 runtime_error!(error_literal)
                                 }
                             } else {
-                                Ok(Value::Empty)
+                                Ok(KValue::Null)
                             }
                         }
                         _ => runtime_error!(error_literal),
@@ -427,6 +446,7 @@ pub fn make_module() -> ValueMap {
         values,
         "time_code_quarter_frame requires a single list of exactly two positive integers as its argument"
     );
+
     make_koto_message_constructor!(
         message_constructors,
         SongPosition,
@@ -434,6 +454,7 @@ pub fn make_module() -> ValueMap {
         midi_beats_elapsed,
         "song_position requires a single list of exactly one positive integer as its argument"
     );
+
     make_koto_message_constructor!(
         message_constructors,
         SongSelect,
@@ -448,42 +469,49 @@ pub fn make_module() -> ValueMap {
         "system_common",
         "tune_request does not take any arguments"
     );
+
     make_koto_message_constructor!(
         message_constructors,       
         EndOfExclusive,
         "system_common",
         "end_of_exclusive does not take any arguments"
     );
+
     make_koto_message_constructor!(
         message_constructors,
         TimingClock,
         "system_realtime",      
         "timing_clock does not take any arguments"
     );
+
     make_koto_message_constructor!(
         message_constructors,
         Start,
         "system_realtime", 
         "start does not take any arguments"
     );
+
     make_koto_message_constructor!(
         message_constructors,
         Continue,
         "system_realtime",
         "continue does not take any arguments"
     );
+
     make_koto_message_constructor!(
         message_constructors,
         Stop,
         "system_realtime",
         "stop does not take any arguments"
     );
+
     make_koto_message_constructor!(
         message_constructors,
         ActiveSensing,
         "system_realtime",
         "active_sensing does not take any arguments"
     );
+
     make_koto_message_constructor!(
         message_constructors,
         Reset,
@@ -491,11 +519,12 @@ pub fn make_module() -> ValueMap {
         "reset does not take any arguments"
     );
 
-    module.add_fn("parse", |vm, args| {
-        if vm.get_args(&args).len() == 1 {
-            match vm.get_args(&args) {
-                [Value::List(message)] => {
-                    let mut message_koto = ValueMap::new();
+    module.add_fn("parse", |ctx| {
+        let args = ctx.args();
+        if args.len() == 1 {
+            match args {
+                [KValue::List(message)] => {
+                    let message_koto = KMap::new();
                     if let Ok(midi_message) = collect_list_of_u8(
                         message,
                         "parse requires a single list of one or more positive integers as its argument",
@@ -511,7 +540,7 @@ pub fn make_module() -> ValueMap {
                             | Message::PitchBend(_)
                             | Message::AfterTouch(_)
                             | Message::PolyAfterTouch(_) => {
-                                message_koto.add_value("category", "channel_voice".into())
+                                message_koto.insert("category", "channel_voice")
                             }
                             Message::AllSoundOff(_)
                             | Message::ResetAllControllers(_)
@@ -521,7 +550,7 @@ pub fn make_module() -> ValueMap {
                             | Message::OmniModeOn(_)
                             | Message::MonoModeOn(_)
                             | Message::PolyModeOn(_) => {
-                                message_koto.add_value("category", "channel_mode".into())
+                                message_koto.insert("category", "channel_mode")
                             }
                             Message::SystemExclusive(_)
                             | Message::SongPosition(_)
@@ -529,7 +558,7 @@ pub fn make_module() -> ValueMap {
                             | Message::TuneRequest(_)
                             | Message::EndOfExclusive(_)
                             | Message::TimeCodeQuarterFrame(_) => {
-                                message_koto.add_value("category", "system_common".into())
+                                message_koto.insert("category", "system_common")
                             }
                             Message::TimingClock(_)
                             | Message::Start(_)
@@ -537,10 +566,10 @@ pub fn make_module() -> ValueMap {
                             | Message::Stop(_)
                             | Message::ActiveSensing(_)
                             | Message::Reset(_) => {
-                                message_koto.add_value("category", "system_realtime".into())
+                                message_koto.insert("category", "system_realtime")
                             }
                             Message::Undefined | Message::Malformed => {
-                                message_koto.add_value("category", "unknown".into())
+                                message_koto.insert("category", "unknown")
                             }
                         };
 
@@ -569,40 +598,40 @@ pub fn make_module() -> ValueMap {
                             }
                             Message::AllSoundOff(message) => {
                                 make_koto_message!(message_koto, message, "all_sound_off", value, channel);
-                                message_koto.add_value("note", 120.into());
+                                message_koto.insert("note", 120);
                             }
                             Message::ResetAllControllers(message) => {
                                 make_koto_message!(message_koto, message, "reset_all_controllers", value, channel);
-                                message_koto.add_value("note", 121.into());
+                                message_koto.insert("note", 121);
                             }
                             Message::LocalControl(message) => {
                                 make_koto_message!(message_koto, message, "local_control", value, channel);
-                                message_koto.add_value("note", 122.into());
+                                message_koto.insert("note", 122);
                             }
                             Message::AllNotesOff(message) => {
                                 make_koto_message!(message_koto, message, "all_notes_off", value, channel);
-                                message_koto.add_value("note", 123.into());
+                                message_koto.insert("note", 123);
                             }
                             Message::OmniModeOff(message) => {
                                 make_koto_message!(message_koto, message, "omni_mode_off", value, channel);
-                                message_koto.add_value("note", 124.into());
+                                message_koto.insert("note", 124);
                             }
                             Message::OmniModeOn(message) => {
                                 make_koto_message!(message_koto, message, "omni_mode_on", value, channel);
-                                message_koto.add_value("note", 125.into());
+                                message_koto.insert("note", 125);
                             }
                             Message::MonoModeOn(message) => {
                                 make_koto_message!(message_koto, message, "mono_mode_on", value, channel);
-                                message_koto.add_value("note", 126.into());
+                                message_koto.insert("note", 126);
                             }
                             Message::PolyModeOn(message) => {
                                 make_koto_message!(message_koto, message, "poly_mode_on", value, channel);
-                                message_koto.add_value("note", 127.into());
+                                message_koto.insert("note", 127);
                             }
                             Message::SystemExclusive(message) => {
-                                message_koto.add_value("type", "system_exclusive".into());
-                                let m_id = message.manufacturer_id.iter().map(|&x| x.into()).collect::<Vec<Value>>();
-                                message_koto.add_value("manufacturer_id", Value::List(ValueList::from_slice(&m_id[..])));
+                                message_koto.insert("type", "system_exclusive");
+                                let m_id = message.manufacturer_id.iter().map(|&x| x.into()).collect::<Vec<KValue>>();
+                                message_koto.insert("manufacturer_id", KValue::List(KList::from_slice(&m_id[..])));
                                 impl_pack!(message_koto, message);
                             }
                             Message::SongPosition(message) => {
@@ -612,54 +641,54 @@ pub fn make_module() -> ValueMap {
                                 make_koto_message!(message_koto, message, "song_select", number);
                             }
                             Message::TuneRequest(message) => {
-                                message_koto.add_value("type", "tune_request".into());
+                                message_koto.insert("type", "tune_request");
                                 impl_pack!(message_koto, message);
                             }
                             Message::EndOfExclusive(message) => {
-                                message_koto.add_value("type", "end_of_exclusive".into());
+                                message_koto.insert("type", "end_of_exclusive");
                                 impl_pack!(message_koto, message);
                             }
                             Message::TimeCodeQuarterFrame(message) => {
                                 make_koto_message!(message_koto, message, "time_code_quarter_frame", message_type, values);
                             }
                             Message::TimingClock(message) => {
-                                message_koto.add_value("type", "timing_clock".into());
+                                message_koto.insert("type", "timing_clock");
                                 impl_pack!(message_koto, message);
                             }
                             Message::Start(message) => {
-                                message_koto.add_value("type", "start".into());
+                                message_koto.insert("type", "start");
                                 impl_pack!(message_koto, message);
                             }
                             Message::Continue(message) => {
-                                message_koto.add_value("type", "continue".into());
+                                message_koto.insert("type", "continue");
                                 impl_pack!(message_koto, message);
                             }
                             Message::Stop(message) => {
-                                message_koto.add_value("type", "stop".into());
+                                message_koto.insert("type", "stop");
                                 impl_pack!(message_koto, message);
                             }
                             Message::ActiveSensing(message) => {
-                                message_koto.add_value("type", "active_sensing".into());
+                                message_koto.insert("type", "active_sensing");
                                 impl_pack!(message_koto, message);
                             }
                             Message::Reset(message) => {
-                                message_koto.add_value("type", "reset".into());
+                                message_koto.insert("type", "reset");
                                 impl_pack!(message_koto, message);
                             }
                             Message::Undefined => {
-                                message_koto.add_value("type", "undefined".into());
+                                message_koto.insert("type", "undefined");
                             }
                             Message::Malformed => {
-                                message_koto.add_value("type", "malformed".into());
+                                message_koto.insert("type", "malformed");
                             }
                         }
 
-                        Ok(Value::Map(message_koto))
+                        Ok(KValue::Map(message_koto))
                     } else {
-                        message_koto.add_value("type", "malformed".into());
-                        message_koto.add_value("category", "unknown".into());
+                        message_koto.insert("type", "malformed");
+                        message_koto.insert("category", "unknown");
                         // Returns an empty value if the message is malformed.
-                        Ok(Value::Map(message_koto))
+                        Ok(KValue::Map(message_koto))
                     }
                 }
                 _ => runtime_error!(
@@ -671,9 +700,9 @@ pub fn make_module() -> ValueMap {
         }
     });
 
-    module.add_map("types", types);
-    module.add_map("categories", categories);
-    module.add_map("message", message_constructors);
+    module.insert("types", types);
+    module.insert("categories", categories);
+    module.insert("message", message_constructors);
     module
 }
 

@@ -8,10 +8,11 @@ fn run_script(script: &str, path: Option<PathBuf>, should_fail_at_runtime: bool)
         run_tests: true,
         ..Default::default()
     });
-    koto.set_script_path(path);
+    koto.set_script_path(path).unwrap();
 
-    let mut prelude = koto.prelude();
-    prelude.add_map("midi", koto_midi::make_module());
+    let prelude = koto.prelude();
+    let module = koto_midi::make_module();
+    prelude.insert("midi", module);
 
     match koto.compile(script) {
         Ok(_) => match koto.run() {
